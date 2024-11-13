@@ -4,6 +4,7 @@
 
 - `pdfpgsz.py`: Get the (file, not geometry) size of each page in a PDF file.
 - `fftbwm.py`: FFT-based blind watermarking.
+- `nvfanctrl.py`: Control the fan speed of an NVIDIA GPU on headless server
 
 ## License
 
