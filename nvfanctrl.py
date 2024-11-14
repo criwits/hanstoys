@@ -2,6 +2,7 @@ import argparse
 import subprocess
 import os
 import signal
+import time
 
 parser = argparse.ArgumentParser(description="nvfanctrl - Control the fan speed of an NVIDIA GPU on headless server")
 parser.add_argument("-a", "--auto", action="store_true", help="enable automatic fan control", default=False)
@@ -24,6 +25,8 @@ command = [
     ":0"
 ]
 xorg = subprocess.Popen(command)
+
+time.sleep(1)
 
 # Step 2: Set the fan speed
 os.environ["DISPLAY"] = ":0"
