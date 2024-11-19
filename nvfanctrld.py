@@ -5,21 +5,75 @@ import signal
 import time
 import pynvml
 
+recipes = [
+    {
+        "begin_hour": 10,
+        "end_hour": 23,
+        "mode": "manual",
+        "base": 30,
+        "steps": [
+            (40, 40),
+            (50, 50),
+            (55, 60),
+            (60, 65),
+        ]
+    },
+    {
+        "begin_hour": 23,
+        "end_hour": 1,
+        "mode": "manual",
+        "base": 30,
+        "steps": [
+            (40, 40),
+            (50, 50),
+            (55, 60),
+            (60, 65),
+            (65, 75),
+        ]
+    },
+    {
+        "begin_hour": 1,
+        "end_hour": 8,
+        "mode": "auto"
+    },
+    {
+        "begin_hour": 8,
+        "end_hour": 10,
+        "mode": "manual",
+        "base": 30,
+        "steps": [
+            (40, 40),
+            (50, 50),
+            (55, 60),
+            (60, 65),
+            (65, 70),
+        ]
+    }
+]
 
-def temp_to_speed(temp: int) -> int:
-    """
-    Modify this to change the fan speed based on the temperature
-    """
-    if temp < 40:
-        return 30
-    elif temp < 50:
-        return 40
-    elif temp < 55:
-        return 50
-    elif temp < 60:
-        return 60
-    else:
-        return 65
+
+def temp_to_speed(recipe: dict, temp: int) -> int:
+    if recipe["mode"] != "manual":
+        raise Exception("Mode error")
+    result = recipe["base"]
+    for start_point, speed in recipe["steps"]:
+        if temp >= start_point:
+            result = speed
+
+    return result
+
+def is_time_match(h: int, r: tuple) -> bool:
+    begin, end = r
+    if (begin < end and begin <= h < end) or (begin > end and ((begin <= h) or (h < end))):
+        return True
+    return False
+
+def run_cmd(cmd: list):
+    try:
+        subprocess.run(cmd)
+    except Exception as e:
+        print(f"Error occured while executing {' '.join(cmd)}: {str(e)}")
+
     
 def handle_exit(signal, frame):
     global xorg
@@ -31,8 +85,6 @@ def handle_exit(signal, frame):
     exit(0)
 
 parser = argparse.ArgumentParser(description="nvfanctrld - Daemon to control the fan speed of an NVIDIA GPU on headless server")
-parser.add_argument("-s", "--auto-start-time", type=int, help="Time to enable auto control (hour of the day)", metavar="HOUR")
-parser.add_argument("-e", "--auto-end-time", type=int, help="Time to disable auto control (hour of the day)", metavar="HOUR")
 parser.add_argument("-t", "--auto-interval", type=int, help="Interval to check the temperature (in seconds)", metavar="SECONDS")
 args = parser.parse_args()
 
@@ -57,7 +109,7 @@ command = [
     "-a",
     "[gpu:0]/GPUFanControlState=0"
 ]
-subprocess.run(command)
+run_cmd(command)
 
 # 注册退出处理函数
 signal.signal(signal.SIGINT, handle_exit)
@@ -67,24 +119,27 @@ signal.signal(signal.SIGTERM, handle_exit)
 while True:
     current_hour = time.localtime().tm_hour
     previous_mode = current_mode
-    if (args.auto_start_time < args.auto_end_time and args.auto_start_time <= current_hour < args.auto_end_time) or \
-            (args.auto_start_time > args.auto_end_time and (args.auto_start_time <= current_hour or current_hour < args.auto_end_time)):
-        current_mode = "auto"
-    else:
-        current_mode = "manual"
+
+    current_recipe = None
+    for recipe in recipes:
+        rtime = (recipe["begin_hour"], recipe["end_hour"])
+        if is_time_match(current_hour, rtime):
+            current_recipe = recipe
+            break
+
+    current_mode = current_recipe["mode"]
 
     if current_mode == "auto" and previous_mode == "manual":
-        # 将 Previous Speed 设为 -1，这样下一次循环会重新设置风扇速度
         previous_speed = -1
         command = [
             "/usr/bin/nvidia-settings",
             "-a",
             "[gpu:0]/GPUFanControlState=0"
         ]
-        subprocess.run(command)
+        run_cmd(command)
     elif current_mode == "manual":
         temperature = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-        new_speed = temp_to_speed(temperature)
+        new_speed = temp_to_speed(current_recipe, temperature)
         if new_speed != previous_speed:
             command = [
                 "/usr/bin/nvidia-settings",
@@ -93,7 +148,7 @@ while True:
                 "-a",
                 f"[fan:0]/GPUTargetFanSpeed={new_speed}"
             ]
-            subprocess.run(command)
+            run_cmd(command)
             previous_speed = new_speed
 
     time.sleep(args.auto_interval)
